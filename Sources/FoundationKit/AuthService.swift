@@ -25,8 +25,7 @@ public struct AuthService: Sendable {
     /// Exchanges an Apple identity token for a server session via `POST /auth/apple`.
     ///
     /// Pass `credential.identityToken` from your `ASAuthorizationAppleIDCredential` directly.
-    /// On success the server sets a session cookie; call ``SessionStore/refresh()`` afterwards
-    /// to populate the store.
+    /// On success the server sets a session cookie; call ``SessionStore/refresh()`` afterwards.
     public func signInWithApple(identityToken: Data) async throws {
         guard let token = String(data: identityToken, encoding: .utf8) else {
             throw APIError.invalidResponse
@@ -38,20 +37,15 @@ public struct AuthService: Sendable {
     // MARK: - Passkeys
 
     /// Fetches the WebAuthn authentication challenge from `POST /auth/passkey/login/begin`.
-    /// Use the returned options to drive `ASAuthorizationController` on iOS 16+.
     public func beginPasskeyLogin() async throws -> PasskeyChallenge {
         try await client.post("/auth/passkey/login/begin", body: EmptyBody())
     }
 
     /// Submits the signed WebAuthn assertion to `POST /auth/passkey/login/finish`.
     public func finishPasskeyLogin(challengeId: String, response: PasskeyAssertionResponse) async throws {
-        struct Body: Encodable {
-            let challengeId: String
-            let response: PasskeyAssertionResponse
-        }
         let _: OkResponse = try await client.post(
             "/auth/passkey/login/finish",
-            body: Body(challengeId: challengeId, response: response)
+            body: PasskeyFinishBody(challengeId: challengeId, response: response)
         )
     }
 
@@ -62,13 +56,9 @@ public struct AuthService: Sendable {
 
     /// Submits the new credential to `POST /auth/passkey/register/finish`.
     public func finishPasskeyRegistration(challengeId: String, response: PasskeyAttestationResponse) async throws {
-        struct Body: Encodable {
-            let challengeId: String
-            let response: PasskeyAttestationResponse
-        }
         let _: OkResponse = try await client.post(
             "/auth/passkey/register/finish",
-            body: Body(challengeId: challengeId, response: response)
+            body: PasskeyFinishBody(challengeId: challengeId, response: response)
         )
     }
 }
@@ -87,20 +77,24 @@ public struct PasskeyChallengeOptions: Decodable, Sendable {
     public let timeout: Int?
 }
 
-/// Encoded assertion response sent to `/auth/passkey/login/finish`.
-public struct PasskeyAssertionResponse: Encodable, Sendable {
+/// A WebAuthn credential response envelope. The `response` payload differs between
+/// assertion (login) and attestation (registration).
+public struct PasskeyCredential<R: Encodable & Sendable>: Encodable, Sendable {
     public let id: String
     public let rawId: String
     public let type: String
-    public let response: AssertionResponseData
+    public let response: R
 
-    public init(id: String, rawId: String, type: String, response: AssertionResponseData) {
+    public init(id: String, rawId: String, type: String, response: R) {
         self.id = id
         self.rawId = rawId
         self.type = type
         self.response = response
     }
 }
+
+public typealias PasskeyAssertionResponse = PasskeyCredential<AssertionResponseData>
+public typealias PasskeyAttestationResponse = PasskeyCredential<AttestationResponseData>
 
 public struct AssertionResponseData: Encodable, Sendable {
     public let clientDataJSON: String
@@ -121,21 +115,6 @@ public struct AssertionResponseData: Encodable, Sendable {
     }
 }
 
-/// Encoded attestation response sent to `/auth/passkey/register/finish`.
-public struct PasskeyAttestationResponse: Encodable, Sendable {
-    public let id: String
-    public let rawId: String
-    public let type: String
-    public let response: AttestationResponseData
-
-    public init(id: String, rawId: String, type: String, response: AttestationResponseData) {
-        self.id = id
-        self.rawId = rawId
-        self.type = type
-        self.response = response
-    }
-}
-
 public struct AttestationResponseData: Encodable, Sendable {
     public let clientDataJSON: String
     public let attestationObject: String
@@ -147,3 +126,7 @@ public struct AttestationResponseData: Encodable, Sendable {
 }
 
 private struct EmptyBody: Encodable {}
+private struct PasskeyFinishBody<R: Encodable>: Encodable {
+    let challengeId: String
+    let response: R
+}

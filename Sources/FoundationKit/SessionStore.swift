@@ -27,7 +27,7 @@ public final class SessionStore {
 
     public var isAuthenticated: Bool { user != nil }
 
-    private let client: APIClient
+    public let client: APIClient
 
     public init(client: APIClient) {
         self.client = client
